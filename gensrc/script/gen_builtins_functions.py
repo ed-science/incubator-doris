@@ -81,11 +81,13 @@ def add_function(fn_meta_data, user_visible):
     """
     assert len(fn_meta_data) == 8, \
             "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(fn_meta_data)
-    entry = {}
-    entry["sql_names"] = fn_meta_data[0]
-    entry["ret_type"] = fn_meta_data[1]
-    entry["args"] = fn_meta_data[2]
-    entry["symbol"] = fn_meta_data[3]
+    entry = {
+        "sql_names": fn_meta_data[0],
+        "ret_type": fn_meta_data[1],
+        "args": fn_meta_data[2],
+        "symbol": fn_meta_data[3],
+    }
+
     if fn_meta_data[4] != '':
         entry["prepare"] = fn_meta_data[4]
     if fn_meta_data[5] != '':
@@ -112,8 +114,8 @@ def generate_fe_datatype(str_type):
     if str_type.startswith("ARRAY_"):
         vec_type = str_type.split('_', 1);
         if len(vec_type) > 1 and vec_type[0] == "ARRAY":
-            return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
-    return "Type." + str_type
+            return f"new ArrayType({generate_fe_datatype(vec_type[1])})"
+    return f"Type.{str_type}"
 
 """
 Order of params:
@@ -125,19 +127,9 @@ def generate_fe_entry(entry, name):
     java_output = ""
     java_output += "\"" + name + "\""
     java_output += ", \"" + entry["symbol"] + "\""
-    if entry["user_visible"]:
-        java_output += ", true"
-    else:
-        java_output += ", false"
-    if 'prepare' in entry:
-        java_output += ', "%s"' % entry["prepare"]
-    else:
-        java_output += ', null'
-    if 'close' in entry:
-        java_output += ', "%s"' % entry["close"]
-    else:
-        java_output += ', null'
-
+    java_output += ", true" if entry["user_visible"] else ", false"
+    java_output += ', "%s"' % entry["prepare"] if 'prepare' in entry else ', null'
+    java_output += ', "%s"' % entry["close"] if 'close' in entry else ', null'
     java_output += ", Function.NullableMode." + entry["nullable_mode"]
     java_output += ", " + generate_fe_datatype(entry["ret_type"])
 
@@ -148,55 +140,52 @@ def generate_fe_entry(entry, name):
     else:
         java_output += ", false"
     for arg in entry["args"]:
-        java_output += ", " + generate_fe_datatype(arg)
+        java_output += f", {generate_fe_datatype(arg)}"
     return java_output
 
 # Generates the FE builtins init file that registers all the builtins.
 def generate_fe_registry_init(filename):
     """add function
     """
-    java_registry_file = open(filename, "w")
-    java_registry_file.write(java_registry_preamble)
+    with open(filename, "w") as java_registry_file:
+        java_registry_file.write(java_registry_preamble)
 
-    for entry in meta_data_entries:
-        for name in entry["sql_names"]:
-            java_output = generate_fe_entry(entry, name)
-            if ("vec" not in entry):
-                java_registry_file.write("        functionSet.addScalarBuiltin(%s);\n" % java_output)
-            else:
-                java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
+        for entry in meta_data_entries:
+            for name in entry["sql_names"]:
+                java_output = generate_fe_entry(entry, name)
+                if ("vec" not in entry):
+                    java_registry_file.write("        functionSet.addScalarBuiltin(%s);\n" % java_output)
+                else:
+                    java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
 
 
-    java_registry_file.write("\n")
+        java_registry_file.write("\n")
 
-    # add non_null_result_with_null_param_functions
-    java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
-    for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
-        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
-    java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
+        # add non_null_result_with_null_param_functions
+        java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
+        for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
+            java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+        java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
 
-    # add nondeterministic functions
-    java_registry_file.write("        Set<String> nondeterministicFuncNames = Sets.newHashSet();\n")
-    for entry in doris_builtins_functions.nondeterministic_functions:
-        java_registry_file.write("        nondeterministicFuncNames.add(\"%s\");\n" % entry)
-    java_registry_file.write("        functionSet.buildNondeterministicFunctions(nondeterministicFuncNames);\n");
+        # add nondeterministic functions
+        java_registry_file.write("        Set<String> nondeterministicFuncNames = Sets.newHashSet();\n")
+        for entry in doris_builtins_functions.nondeterministic_functions:
+            java_registry_file.write("        nondeterministicFuncNames.add(\"%s\");\n" % entry)
+        java_registry_file.write("        functionSet.buildNondeterministicFunctions(nondeterministicFuncNames);\n");
 
-    java_registry_file.write("        funcNames = Sets.newHashSet();\n")
-    for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
-        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
-    java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
+        java_registry_file.write("        funcNames = Sets.newHashSet();\n")
+        for entry in doris_builtins_functions.null_result_with_one_null_param_functions:
+            java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+        java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
 
-    java_registry_file.write(java_registry_epilogue)
-    java_registry_file.close()
+        java_registry_file.write(java_registry_epilogue)
 
 if __name__ == "__main__":
 
     try:
         os.makedirs(FE_PATH)
     except OSError as e:
-        if e.errno == errno.EEXIST:
-            pass
-        else:
+        if e.errno != errno.EEXIST:
             raise
 
     # Read the function metadata inputs
@@ -205,4 +194,4 @@ if __name__ == "__main__":
     for function in doris_builtins_functions.invisible_functions:
         add_function(function, False)
 
-    generate_fe_registry_init(FE_PATH + "ScalarBuiltins.java")
+    generate_fe_registry_init(f"{FE_PATH}ScalarBuiltins.java")
